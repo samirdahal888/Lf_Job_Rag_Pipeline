@@ -35,7 +35,7 @@ User Query → Query Parser → Embedding Generation → Vector Search (+ Filter
 
 ```bash
 git clone <repository-url>
-cd GenAI_Takeaway_assignment
+cd Lf_Job_Rag_Pipeline
 ```
 
 ### 2. Create Virtual Environment
@@ -119,7 +119,7 @@ This repository contains a Retrieval-Augmented-Generation (RAG) pipeline for job
 ---
 
 ## Install & Setup
-From project root (`GenAI_Takeaway_assignment`):
+From project root (`Lf_Job_Rag_Pipeline`):
 
 ```bash
 # create & activate venv
