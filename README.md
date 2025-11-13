@@ -87,147 +87,237 @@ The API will be available at: http://localhost:8000
 ## 📖 API Documentation
 
 Once the server is running, visit:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+# LF Jobs — RAG Pipeline
 
-### Example API Request
+This repository contains a Retrieval-Augmented-Generation (RAG) pipeline for job search. It uses local Hugging Face sentence-transformers for embeddings, ChromaDB as the vector store, and a Gemini LLM for query parsing and natural language responses (when available). The project exposes a FastAPI REST API with interactive Swagger UI.
+
+---
+
+## Quick status
+- Embeddings: local `all-MiniLM-L6-v2` (384D) — used by default (no quota limits)
+- LLM (parsing + responses): `gemini-2.5-flash` (needs GEMINI_API_KEY; used sparingly)
+- Vector DB: ChromaDB, path: `./chroma_db`
+- Current indexed data: 2 jobs (30 chunks) — ready for full indexing
+
+---
+
+## Contents
+- `src/` — application code (API, retriever, embeddings, preprocessing, vector store)
+- `scripts/setup_database.py` — one-time job indexing script with checkpointing and rate limiter
+- `data/lf_jobs.csv` — input spreadsheet (job listings)
+- `chroma_db/` — persisted ChromaDB (created after indexing)
+- `main.py` — convenient entry point to run the API
+- `test_api.py` — small testing harness (optional)
+
+---
+
+## Prerequisites
+- Linux/macOS/Windows WSL
+- Python 3.10+ (project uses venv)
+- Recommended: 4+ CPU cores; GPU optional but not required
+
+---
+
+## Install & Setup
+From project root (`GenAI_Takeaway_assignment`):
 
 ```bash
-curl -X POST http://localhost:8000/api/query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "Senior Python developer jobs in New York",
-    "top_k": 5,
-    "include_llm_response": true
-  }'
+# create & activate venv
+python3 -m venv venv
+source venv/bin/activate
+
+# install dependencies
+pip install -r requirements.txt
 ```
 
-### Example Response
+Create a `.env` file with your Gemini key (optional if you plan to use only local embeddings):
+
+```text
+GEMINI_API_KEY=your_gemini_api_key_here
+CHROMA_DB_PATH=./chroma_db
+```
+
+Notes:
+- If `GEMINI_API_KEY` is not present or invalid, the system will fall back to the local embedding model for indexing/search.
+
+---
+
+## Data Preparation
+Place your exported spreadsheet at:
+
+```
+data/lf_jobs.csv
+```
+
+Expected columns (example):
+- id, job_category, job_title, company_name, publication_date, job_location, job_level, tags, job_description
+
+---
+
+## How chunking works
+- `src/preprocessing.py` uses LangChain's `RecursiveCharacterTextSplitter` with:
+  - CHUNK_SIZE = 500 characters
+  - CHUNK_OVERLAP = 50 characters
+  - Separators (priority): `\n\n`, `\n`, `.`, `!`, `?`, `,`, ` `, ``
+- Chunk 0: Title + first 300 characters of description (high importance)
+- Later chunks: split the remaining description; chunk type auto-detected (responsibilities, requirements, benefits, general)
+
+Reason: 500 chars (~100 words) gives good semantic context without diluting matching.
+
+---
+
+## Indexing (one-time)
+If you're ready to index the whole CSV with the local model (recommended when Gemini embedding quota is exhausted):
+
+```bash
+# from repo root
+source venv/bin/activate
+python scripts/setup_database.py --use-local --force
+```
+
+Notes:
+- `--use-local` : Use sentence-transformers local model (`all-MiniLM-L6-v2`) for embeddings
+- `--force` : Rebuild (resets the checkpoint if present)
+- The script supports checkpointing (JSON) and a rate-limiter for Gemini mode. If interrupted, re-run with the same flags and it will resume.
+
+Expected run time: ~4 minutes for 1000 jobs (≈15,000 chunks) on CPU (batch encoding).
+
+---
+
+## Running the API
+You can start the API either with `main.py` or directly with Uvicorn.
+
+Option A (convenience wrapper):
+
+```bash
+source venv/bin/activate
+python main.py
+```
+
+Option B (uvicorn):
+
+```bash
+source venv/bin/activate
+uvicorn src.api:app --reload --host 0.0.0.0 --port 8000
+```
+
+Open interactive docs (Swagger UI):
+
+```
+http://localhost:8000/docs
+```
+
+Or ReDoc:
+
+```
+http://localhost:8000/redoc
+```
+
+Health endpoint:
+
+```
+GET /api/health
+```
+
+---
+
+## Example API usage
+### POST /api/query
+Request body example (JSON):
 
 ```json
 {
-  "query": "Senior Python developer jobs in New York",
-  "filters_applied": {
-    "level": "Senior Level",
-    "location": "New York, NY"
-  },
-  "results": [
-    {
-      "job_id": "LF0001",
-      "job_title": "Senior Python Developer",
-      "company": "Tech Corp",
-      "location": "New York, NY",
-      "level": "Senior Level",
-      "category": "Software Development",
-      "relevance_score": 0.95,
-      "snippet": "We are seeking an experienced Python developer..."
-    }
-  ],
-  "llm_response": "I found 5 senior Python developer positions in New York...",
-  "total_results": 5
+  "query": "senior Python developer in San Francisco",
+  "top_k": 5,
+  "response_type": "detailed",
+  "filters": {
+    "job_level": "Senior Level"
+  }
 }
 ```
 
-## 📁 Project Structure
-
-```
-GenAI_Takeaway_assignment/
-├── data/
-│   └── lf_jobs.csv              # Job dataset (CSV)
-├── src/
-│   ├── __init__.py
-│   ├── config.py                # Configuration
-│   ├── data_loader.py           # Data loading
-│   ├── preprocessing.py         # HTML cleaning & chunking
-│   ├── embeddings.py            # Gemini embeddings
-│   ├── vector_store.py          # ChromaDB operations
-│   ├── query_parser.py          # Query parsing
-│   ├── retriever.py             # Search & retrieval
-│   ├── llm_response.py          # LLM response generation
-│   └── api.py                   # FastAPI endpoints
-├── scripts/
-│   └── setup_database.py        # Database setup script
-├── tests/
-│   └── test_api.py              # Unit tests
-├── notebooks/
-│   └── exploration.ipynb        # Data exploration
-├── chroma_db/                   # Vector database (auto-created)
-├── .env                         # Environment variables
-├── .gitignore
-├── requirements.txt
-├── main.py                      # Entry point
-└── README.md
-```
-
-## 🧪 Testing
+Curl example:
 
 ```bash
-# Run all tests
-pytest
-
-# Run specific test
-pytest tests/test_api.py -v
+curl -X POST http://localhost:8000/api/query \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "query": "senior Python developer in San Francisco",
+    "top_k": 5,
+    "response_type": "detailed",
+    "filters": {"job_level": "Senior Level"}
+  }' | jq .
 ```
 
-## 🔧 Configuration
+### Interactive testing (Swagger UI)
+1. Open `http://localhost:8000/docs`
+2. Expand `POST /api/query`
+3. Click `Try it out`, paste JSON, `Execute`
 
-Edit `src/config.py` to customize:
-- Chunk size and overlap
-- Number of results returned
-- LLM temperature
-- Embedding model settings
+---
 
-## 📝 Development Notes
+## Under the hood (short)
+- Query parsing: `src/query_parser.py` uses the Gemini LLM to extract:
+  - `semantic_query` (the text to embed / semantically search)
+  - `filters` (category, location, job_level, etc.)
+- Embeddings: `src/embeddings.py` (local HF model or Gemini embedding-001 when enabled)
+- Vector DB: `src/vector_store.py` (ChromaDB) stores per-chunk embeddings + metadata
+- Retriever: `src/retriever.py` generates query embedding, calls `VectorStore.query_with_filters()` and deduplicates chunks into jobs
+- Response generator: `src/llm_response.py` formats natural language responses using Gemini
 
-### How It Works
+---
 
-1. **Data Processing**: Job descriptions are cleaned (HTML removed) and split into semantic chunks
-2. **Embedding Creation**: Each chunk is converted to a 768-dimensional vector using Gemini
-3. **Vector Storage**: Embeddings are stored in ChromaDB with metadata (filters)
-4. **Query Processing**: User queries are parsed to extract filters and semantic intent
-5. **Hybrid Search**: ChromaDB searches using both vector similarity and metadata filters
-6. **Deduplication**: Results are deduplicated by job_id, keeping the best match per job
-7. **LLM Enhancement**: Gemini Pro generates a natural language response
+## Configurable settings
+See `src/config.py` for the main settings:
+- `CHUNK_SIZE`, `CHUNK_OVERLAP`
+- `TOP_K_RESULTS` & `RETRIEVAL_MULTIPLIER`
+- `EMBEDDING_MODEL`, `EMBEDDING_DIMENSION` (Gemini defaults)
+- `LLM_MODEL`, `LLM_TEMPERATURE`, `LLM_MAX_OUTPUT_TOKENS`
 
-### Key Design Decisions
+---
 
-- **ChromaDB**: Chosen for local deployment, easy setup, and built-in filtering
-- **Gemini**: Free tier, high quality embeddings (768D), integrated LLM
-- **LangChain**: Industry-standard text splitting with smart separators
-- **Hybrid Search**: Filters applied during search (not after) for better performance
+## Troubleshooting
+- 404 / `TypeError: 'dict' object is not callable` in logs
+  - This is caused by the ASGI/Starlette error handling when a middleware's error handler returns a raw dict. The server still works — check `/api/health` and `/docs`. We added robust handlers in `src/api.py` to return `JSONResponse`.
 
-## 🚧 Assumptions
+- Embedding dimension mismatch (0 results)
+  - Ensure the same model is used for indexing and querying. Local model = 384D (all-MiniLM-L6-v2). If you indexed with Gemini (768D), queries using 384D embeddings will fail to match.
 
-- Job descriptions are in English
-- CSV file follows the specified format (9 columns)
-- Gemini API is accessible and within rate limits
+- Gemini quota exceeded
+  - Use `--use-local` flag (already implemented). Re-embedding with Gemini is possible after quota resets.
 
-## ⚠️ Limitations
+- Server memory/killed issues
+  - If uvicorn is killed due to memory, reduce parallelism or run without `--reload`.
 
-- Currently supports only document-level search (not real-time updates)
-- Rate limited by Gemini API (1500 requests/day on free tier)
-- Local ChromaDB (not suitable for distributed deployment without changes)
+---
 
-## 🔮 Future Enhancements
+## Files of interest
+- `src/api.py` — FastAPI app and endpoints
+- `src/preprocessing.py` — cleaning + chunking rules
+- `src/embeddings.py` — wrapper for Gemini/local embeddings
+- `src/vector_store.py` — ChromaDB wrapper (query_with_filters uses `$and` for multiple filters)
+- `scripts/setup_database.py` — indexing script with checkpoint & rate-limiter
+- `main.py` — quick entry-point to run the API
 
-1. **Reranker Model**: Add cross-encoder for better result ranking
-2. **Caching**: Cache frequent queries for faster responses
-3. **Advanced Filters**: Salary range, experience years, skills matching
-4. **Multi-language**: Support for non-English job descriptions
-5. **Real-time Updates**: Incremental updates to vector database
-6. **Production Deployment**: Migration to cloud-based vector DB (Pinecone, Weaviate)
-7. **User Feedback**: Learning from user clicks/selections
+---
 
-## 👥 Author
+## Next steps / Checklist
+1. (You) Review README and verify local instructions work on your machine
+2. Run full indexing:
 
-Samir Dahal - Leapfrog Technology Assignment
+```bash
+source venv/bin/activate
+python scripts/setup_database.py --use-local --force
+```
 
-## 📄 License
+3. Run API and test via Swagger UI / `test_api.py` / curl
+4. Add README to repo, finalize `.gitignore`, push to GitHub
 
-This project is created as part of a technical assessment.
+---
 
-## 🙏 Acknowledgments
+## Contact
+If anything fails, check `api.log` (if started with `nohup`) or the console running `uvicorn`. Share the last 50 lines of logs when asking for help.
 
-- Leapfrog Technology for the opportunity
-- Google for Gemini API
-- ChromaDB and LangChain communities
+---
+
+Good luck — ready when you are to run full indexing and final tests! 🚀
