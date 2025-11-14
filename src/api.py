@@ -7,8 +7,9 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.config import config
@@ -342,30 +343,36 @@ async def get_job_details(job_id: str):
 
 
 @app.exception_handler(404)
-async def not_found_handler(request, exc):
+async def not_found_handler(request: Request, exc):
     """Custom 404 handler"""
-    return {
-        "success": False,
-        "error": "Not Found",
-        "message": "The requested endpoint does not exist",
-        "available_endpoints": [
-            "POST /api/query",
-            "GET /api/health",
-            "GET /api/stats",
-            "GET /api/job/{job_id}",
-        ],
-    }
+    return JSONResponse(
+        status_code=404,
+        content={
+            "success": False,
+            "error": "Not Found",
+            "message": "The requested endpoint does not exist",
+            "available_endpoints": [
+                "POST /api/query",
+                "GET /api/health",
+                "GET /api/stats",
+                "GET /api/job/{job_id}",
+            ],
+        },
+    )
 
 
 @app.exception_handler(500)
-async def internal_error_handler(request, exc):
+async def internal_error_handler(request: Request, exc):
     """Custom 500 handler"""
-    return {
-        "success": False,
-        "error": "Internal Server Error",
-        "message": "An unexpected error occurred",
-        "detail": str(exc),
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "Internal Server Error",
+            "message": "An unexpected error occurred",
+            "detail": str(exc),
+        },
+    )
 
 
 # ==================== STARTUP/SHUTDOWN ====================
